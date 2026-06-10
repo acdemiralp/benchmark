@@ -1,40 +1,20 @@
 # acdemiralp/benchmark
 Single-header benchmarking library.
 
-### Bootstrap
-```powershell
-./bootstrap.bat
+### Building
 ```
-
-```powershell
+./bootstrap.[bat|sh]
 cmake --preset ninja-multi
-cmake --build --preset debug
-cmake --preset ninja-multi-tests
-cmake --build --preset debug-tests
-ctest --preset debug
+cmake --build --preset release
 ```
 
-## API
-
-### `bm::record<type>`
-Stores benchmark samples and computes mean, variance, and standard deviation. Records can also be exported as CSV.
-
-### `bm::session<type>`
-Stores a set of named records and can export the whole session as CSV.
-
-### `bm::session_recorder<type, period>`
-Records named benchmark runs into a session during each iteration.
-
-### `bm::run<type, period>`
-Runs either a single benchmark function or a session recorder function over a fixed number of iterations.
-
-## Example
+## Using
 ```cpp
 #include <algorithm>
 #include <cstddef>
 #include <vector>
 
-#include <bm/bm.hpp>
+#include <benchmark/benchmark.hpp>
 
 int main()
 {

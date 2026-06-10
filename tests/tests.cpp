@@ -5,7 +5,7 @@
 
 #include <doctest/doctest.h>
 
-#include <bm/bm.hpp>
+#include <benchmark/benchmark.hpp>
 
 TEST_CASE("bm::record computes summary statistics")
 {
@@ -14,6 +14,15 @@ TEST_CASE("bm::record computes summary statistics")
   CHECK(record.mean() == doctest::Approx(2.0));
   CHECK(record.variance() == doctest::Approx(2.0 / 3.0));
   CHECK(record.standard_deviation() == doctest::Approx(std::sqrt(2.0 / 3.0)));
+}
+
+TEST_CASE("bm::record handles empty inputs")
+{
+  const bm::record<double> record{"empty", {}};
+
+  CHECK(record.mean() == doctest::Approx(0.0));
+  CHECK(record.variance() == doctest::Approx(0.0));
+  CHECK(record.standard_deviation() == doctest::Approx(0.0));
 }
 
 TEST_CASE("bm::run records the requested iteration count")
