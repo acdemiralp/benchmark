@@ -3,220 +3,293 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
-#include <fstream>
 #include <functional>
-#include <limits>
-#include <numeric>
-#include <sstream>
+#include <ostream>
+#include <ranges>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
-#ifdef BM_MPI_SUPPORT
-#include <mpi.h>
-#endif
-
-namespace bm
+namespace benchmark
 {
-template <typename type = double>
+namespace detail
+{
+template <typename type>
+inline constexpr auto is_duration = false;
+
+template <typename representation, typename period>
+inline constexpr auto is_duration<std::chrono::duration<representation, period>> = true;
+
+template <typename type>
+concept duration = is_duration<type> && requires
+{
+  typename type::rep;
+  requires std::floating_point<typename type::rep>;
+};
+
+template <duration duration_type>
+[[nodiscard]] consteval std::string_view unit() noexcept
+{
+  using period = typename duration_type::period;
+  if constexpr (std::same_as<period, std::nano>)
+    return "ns";
+  else if constexpr (std::same_as<period, std::micro>)
+    return "us";
+  else if constexpr (std::same_as<period, std::milli>)
+    return "ms";
+  else if constexpr (std::same_as<period, std::ratio<1>>)
+    return "s";
+  else
+    return "ticks";
+}
+
+inline std::ostream& write_csv_name(std::ostream& stream, const std::string_view name)
+{
+  stream << '"';
+  for (const auto character : name)
+  {
+    if (character == '"')
+      stream << "\"\"";
+    else
+      stream << character;
+  }
+  return stream << '"';
+}
+
+inline std::ostream& write_json_name(std::ostream& stream, const std::string_view name)
+{
+  stream << '"';
+  for (const auto character : name)
+  {
+    if (character == '"' || character == '\\')
+      stream << '\\';
+    stream << character;
+  }
+  return stream << '"';
+}
+}
+
+template <detail::duration duration_type = std::chrono::duration<double, std::nano>>
 struct record
 {
-  constexpr type        mean              () const
+  using value_type = duration_type;
+  using rep        = typename duration_type::rep;
+
+  [[nodiscard]] constexpr duration_type sum                     () const
   {
-    return std::accumulate(values.begin(), values.end(), type(0)) / static_cast<type>(values.size());
+    auto result = duration_type {};
+    for (const auto value : values)
+      result += value;
+    return result;
   }
-  constexpr type        variance          () const
+  [[nodiscard]] constexpr duration_type mean                    () const
   {
-    auto m = mean();
-    std::vector<type> differences(values.size());
-    std::transform(values.begin(), values.end(), differences.begin(), [m] (const type& value) { return value - m; });
-    return std::inner_product(differences.begin(), differences.end(), differences.begin(), type(0)) / static_cast<type>(values.size());
+    return values.empty() ? duration_type {} : sum() / static_cast<rep>(values.size());
   }
-  constexpr type        standard_deviation() const
+  [[nodiscard]] constexpr duration_type minimum                 () const
   {
-    return std::sqrt(variance());
+    return values.empty() ? duration_type {} : *std::ranges::min_element(values);
   }
-                                                              
-  constexpr std::string to_string         () const
+  [[nodiscard]] constexpr duration_type maximum                 () const
   {
-    std::ostringstream stream;
-    stream.precision(std::numeric_limits<type>::max_digits10);
-    stream << name << ",";
-    for (auto& value : values)
-      stream << value << ",";
-    stream << mean() << "," << variance() << "," << standard_deviation();
-    return stream.str();
+    return values.empty() ? duration_type {} : *std::ranges::max_element(values);
   }
-  constexpr void        to_csv            (const std::string& filepath) const
+  [[nodiscard]] constexpr duration_type median                  () const
   {
-    std::ofstream stream(filepath);
-    stream << "name,";
-    for (std::size_t i = 0; i < values.size(); ++i)
-      stream << "run_" << i << ",";
-    stream << "mean,variance,standard deviation\n";
-    stream << to_string();
+    if (values.empty())
+      return duration_type {};
+
+    auto sorted = values;
+    std::ranges::sort(sorted);
+    const auto middle = sorted.size() / 2;
+    if (sorted.size() % 2 != 0)
+      return sorted[middle];
+
+    return (sorted[middle - 1] + sorted[middle]) / static_cast<rep>(2);
+  }
+  [[nodiscard]] constexpr rep           variance                () const
+  {
+    if (values.empty())
+      return rep {};
+
+    const auto average = mean().count();
+    const auto squared = [average] (const auto value) constexpr noexcept
+    {
+      const auto difference = value.count() - average;
+      return difference * difference;
+    };
+    auto total = rep {};
+    for (const auto value : values)
+      total += squared(value);
+    return total / static_cast<rep>(values.size());
+  }
+  [[nodiscard]] duration_type           standard_deviation      () const noexcept
+  {
+    return duration_type {std::sqrt(variance())};
+  }
+  [[nodiscard]] rep                     coefficient_of_variation() const noexcept
+  {
+    const auto average = mean().count();
+    return average == rep {} ? rep {} : standard_deviation().count() / average;
   }
 
-  std::string       name  ;
-  std::vector<type> values;
+  std::string                name  ;
+  std::vector<duration_type> values;
 };
 
-template <typename type = double>
-struct session
-{
-  virtual ~session() = default;
-
-  virtual std::string to_string() const
-  {
-    std::ostringstream stream;
-    for (auto& record : records)
-      stream << record.to_string() << "\n";
-    return stream.str();
-  }
-  virtual void        to_csv   (const std::string& filepath) const
-  {
-    std::ofstream stream(filepath);
-    stream << "name,";
-    for (std::size_t i = 0; i < records[0].values.size(); ++i)
-      stream << "run_" << i << ",";
-    stream << "mean,variance,standard deviation\n";
-    stream << to_string();
-  }
-
-  std::vector<record<type>> records;
-};
-
-#ifdef BM_MPI_SUPPORT
-template <typename type = double>
-class  mpi_session : public session<type>
+template <detail::duration duration_type = std::chrono::duration<double, std::nano>>
+class  session
 {
 public:
-  mpi_session           (MPI_Comm communicator = MPI_COMM_WORLD, std::int32_t master_rank = 0) : communicator_(communicator), master_rank_(master_rank)
-  {
-    MPI_Comm_rank(communicator_, &rank_);
-    MPI_Comm_size(communicator_, &size_);
-  }
-  mpi_session           (const mpi_session&  that) = default;
-  mpi_session           (      mpi_session&& temp) = default;
- ~mpi_session           ()                         = default;
-  mpi_session& operator=(const mpi_session&  that) = default;
-  mpi_session& operator=(      mpi_session&& temp) = default;
-  
-  void                gather   ()
-  {
-    std::ostringstream stream;
-    for (auto& record : records) 
-      stream << rank_ << "," << record.to_string() << "\n";
-    std::string  local_string = stream      .str ();
-    std::int32_t local_size   = local_string.size();
-    
-    std::vector<std::int32_t> sizes        (size_);
-    std::vector<std::int32_t> displacements(size_);
-    std::int32_t              counter = 0;
-    MPI_Gather (&local_size, 1, MPI_INT, sizes.data(), 1, MPI_INT, master_rank_, communicator_);
-    for (auto i = 0; i < size_; ++i)
-      displacements[i] = counter, counter += sizes[i];
-    gathered_.resize(counter);
-    MPI_Gatherv(local_string.data(), local_string.size(), MPI_CHAR, gathered_.data(), sizes.data(), displacements.data(), MPI_CHAR, master_rank_, communicator_);
-  }
-  virtual std::string to_string()                            const override
-  {
-    return rank_ == master_rank_ ? gathered_ : session<type>::to_string();
-  }
-  virtual void        to_csv   (const std::string& filepath) const override
-  {
-    if (rank_ != master_rank_)
-      return;
+  using record_type = record<duration_type>;
 
-    std::ofstream stream(filepath);
-    stream << "rank,name,";
-    for (auto i = 0; i < records[0].values.size(); ++i)
-      stream << "run_" << i << ",";
-    stream << "mean,variance,standard deviation\n";
-    stream << to_string();
+  [[nodiscard]] constexpr std::size_t iterations() const noexcept
+  {
+    return records_.empty() ? std::size_t {} : records_.front().values.size();
   }
-  
-protected:
-  MPI_Comm     communicator_;
-  std::int32_t master_rank_ ;
-  std::int32_t rank_        ;
-  std::int32_t size_        ;
-  std::string  gathered_    ;
+  [[nodiscard]] constexpr const std::vector<record_type>& records() const noexcept
+  {
+    return records_;
+  }
+
+private:
+  template <detail::duration, typename>
+  friend class session_recorder;
+
+  [[nodiscard]] record_type& record(const std::string_view name, const std::size_t iterations)
+  {
+    const auto key             = std::string {name};
+    const auto [index, insert] = indices_.try_emplace(key, records_.size());
+    if (insert)
+      records_.emplace_back(index->first, std::vector<duration_type>(iterations));
+    return records_[index->second];
+  }
+
+  std::vector<record_type>                     records_;
+  std::unordered_map<std::string, std::size_t> indices_;
 };
-#endif
 
-template <typename type = double, typename period = std::milli>
+template <detail::duration duration_type = std::chrono::duration<double, std::nano>, typename clock_type = std::chrono::steady_clock>
 class  session_recorder
 {
 public:
-  explicit session_recorder  (const std::size_t index, const std::size_t iterations, session<type>& session) 
+  explicit constexpr session_recorder  (const std::size_t index, const std::size_t iterations, session<duration_type>& session) noexcept
   : index_(index), iterations_(iterations), session_(session)
   {
 
   }
-  session_recorder           (const session_recorder&  that) = delete ;
-  session_recorder           (      session_recorder&& temp) = default;
-  virtual ~session_recorder  ()                              = default;
-  session_recorder& operator=(const session_recorder&  that) = delete ;
-  session_recorder& operator=(      session_recorder&& temp) = default;
-  
-  void record(const std::string& name, const std::function<void()>& function)
-  {
-    const auto start = std::chrono::high_resolution_clock::now();
-    function();
-    const auto end   = std::chrono::high_resolution_clock::now();
+  constexpr session_recorder           (const session_recorder&  that) = delete;
+  constexpr session_recorder           (      session_recorder&& temp) = delete;
+  constexpr ~session_recorder          () noexcept                     = default;
+  constexpr session_recorder& operator=(const session_recorder&  that) = delete;
+  constexpr session_recorder& operator=(      session_recorder&& temp) = delete;
 
-    auto record = std::find_if(session_.records.begin(), session_.records.end(),
-      [&name] (const bm::record<type>& record) { return record.name == name; });
-    if (record == session_.records.end())
-    {
-      session_.records.push_back({name, {std::vector<type>(iterations_)}});
-      record = std::prev(session_.records.end());
-    }
-    record->values[index_] = std::chrono::duration<type, period>(end - start).count();
+  template <typename function_type>
+  requires std::invocable<function_type&>
+  constexpr void record(const std::string_view name, function_type&& function)
+  {
+    const auto start = clock_type::now();
+    std::invoke(function);
+    const auto end    = clock_type::now();
+    auto&      result = session_.record(name, iterations_);
+    result.values[index_] = std::chrono::duration_cast<duration_type>(end - start);
   }
 
 protected:
-  const std::size_t index_     ;
-  const std::size_t iterations_;
-  session<type>&    session_   ;
+  const std::size_t       index_     ;
+  const std::size_t       iterations_;
+  session<duration_type>& session_   ;
 };
 
-template<typename type = double, typename period = std::milli>
-record<type>      run    (const std::function<void()>&                                function, const std::size_t iterations = 1)
+template<detail::duration duration_type = std::chrono::duration<double, std::nano>, typename clock_type = std::chrono::steady_clock, typename function_type>
+requires std::invocable<function_type&>
+[[nodiscard]] record<duration_type>   run(function_type&& function, const std::size_t iterations = 1)
 {
-  record<type> record {"benchmark", std::vector<type>(iterations)};
-  for (std::size_t i = 0; i < iterations; ++i)
+  auto record = benchmark::record<duration_type> {"benchmark", std::vector<duration_type>(iterations)};
+  for (auto i = std::size_t {}; i < iterations; ++i)
   {
-    const auto start = std::chrono::high_resolution_clock::now();
-    function();
-    const auto end   = std::chrono::high_resolution_clock::now();
-    record.values[i] = std::chrono::duration<type, period>(end - start).count();
+    const auto start = clock_type::now();
+    std::invoke(function);
+    const auto end   = clock_type::now();
+    record.values[i] = std::chrono::duration_cast<duration_type>(end - start);
   }
   return record;
 }
-template<typename type = double, typename period = std::milli>
-session<type>     run    (const std::function<void(session_recorder<type, period>&)>& function, const std::size_t iterations = 1)
+template<detail::duration duration_type = std::chrono::duration<double, std::nano>, typename clock_type = std::chrono::steady_clock, typename function_type>
+requires std::invocable<function_type&, session_recorder<duration_type, clock_type>&>
+[[nodiscard]] session<duration_type>  run(function_type&& function, const std::size_t iterations = 1)
 {
-  session<type> session;
-  for(std::size_t i = 0; i < iterations; ++i)
+  auto session = benchmark::session<duration_type> {};
+  for (auto i = std::size_t {}; i < iterations; ++i)
   {
-    session_recorder<type, period> recorder(i, iterations, session);
-    function(recorder);
+    auto recorder = session_recorder<duration_type, clock_type> {i, iterations, session};
+    std::invoke(function, recorder);
   }
   return session;
 }
-#ifdef BM_MPI_SUPPORT
-template<typename type = double, typename period = std::milli>
-mpi_session<type> run_mpi(const std::function<void(session_recorder<type, period>&)>& function, const std::size_t iterations = 1, const MPI_Comm communicator = MPI_COMM_WORLD, const std::int32_t master_rank = 0)
+
+template <detail::duration duration_type>
+std::ostream& write_console(std::ostream& stream, const record<duration_type>& record)
 {
-  mpi_session<type> session(communicator, master_rank);
-  for (std::size_t i = 0; i < iterations; ++i)
-  {
-    session_recorder<type, period> recorder(i, iterations, session);
-    function(recorder);
-  }
-  return session;
+  return stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n"
+                << record.name << ' ' << record.mean().count() << ' ' << record.values.size() << '\n';
 }
-#endif
+
+template <detail::duration duration_type>
+std::ostream& write_console(std::ostream& stream, const session<duration_type>& session)
+{
+  stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
+  for (const auto& record : session.records())
+    stream << record.name << ' ' << record.mean().count() << ' ' << record.values.size() << '\n';
+  return stream;
+}
+
+template <detail::duration duration_type>
+std::ostream& write_csv(std::ostream& stream, const record<duration_type>& record)
+{
+  stream << "name,iterations,real_time,time_unit\n";
+  detail::write_csv_name(stream, record.name);
+  return stream << ',' << record.values.size() << ',' << record.mean().count() << ',' << detail::unit<duration_type>() << '\n';
+}
+
+template <detail::duration duration_type>
+std::ostream& write_csv(std::ostream& stream, const session<duration_type>& session)
+{
+  stream << "name,iterations,real_time,time_unit\n";
+  for (const auto& record : session.records())
+  {
+    detail::write_csv_name(stream, record.name);
+    stream << ',' << record.values.size() << ',' << record.mean().count() << ',' << detail::unit<duration_type>() << '\n';
+  }
+  return stream;
+}
+
+template <detail::duration duration_type>
+std::ostream& write_json(std::ostream& stream, const record<duration_type>& record)
+{
+  stream << "{\"benchmarks\":[{\"name\":";
+  detail::write_json_name(stream, record.name);
+  return stream << ",\"iterations\":" << record.values.size()
+                << ",\"real_time\":" << record.mean().count() << ",\"time_unit\":\"" << detail::unit<duration_type>() << "\"}]}\n";
+}
+
+template <detail::duration duration_type>
+std::ostream& write_json(std::ostream& stream, const session<duration_type>& session)
+{
+  stream << "{\"benchmarks\":[";
+  for (auto i = std::size_t {}; i < session.records().size(); ++i)
+  {
+    const auto& record = session.records()[i];
+    if (i != 0)
+      stream << ',';
+    stream << "{\"name\":";
+    detail::write_json_name(stream, record.name);
+    stream << ",\"iterations\":" << record.values.size()
+           << ",\"real_time\":" << record.mean().count() << ",\"time_unit\":\"" << detail::unit<duration_type>() << "\"}";
+  }
+  return stream << "]}\n";
+}
 }

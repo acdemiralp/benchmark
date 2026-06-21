@@ -1,5 +1,5 @@
 # acdemiralp/benchmark
-Single-header C++23 benchmarking library.
+Single-header C++23 benchmarking library with no required `main` replacement.
 
 ## Building
 ```
@@ -15,4 +15,44 @@ target_link_libraries(application PRIVATE benchmark::benchmark)
 ```
 
 ## Example
-TODO
+```cpp
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <print>
+#include <vector>
+
+#include <benchmark/benchmark.hpp>
+
+int main()
+{
+  auto values = std::vector<int>(1000);
+
+  using milliseconds = std::chrono::duration<double, std::milli>;
+
+  const auto record = benchmark::run<milliseconds>([&]
+  {
+    std::ranges::sort(values);
+  }, 100);
+
+  std::println("mean: {} ms", record.mean().count());
+  std::println("standard deviation: {} ms", record.standard_deviation().count());
+
+  const auto session = benchmark::run<milliseconds>([&] (auto& recorder)
+  {
+    recorder.record("sort", [&]
+    {
+      std::ranges::sort(values);
+    });
+  }, 100);
+
+  benchmark::write_console(std::cout, session);
+}
+```
+
+Reports are available as compact stream output:
+
+```cpp
+benchmark::write_console(std::cout, session);
+benchmark::write_csv    (std::cout, session);
+benchmark::write_json   (std::cout, session);
