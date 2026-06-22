@@ -31,6 +31,11 @@ TEST_CASE("benchmark::record statistics are empty-safe")
 
 TEST_CASE("benchmark::record statistics use chrono durations")
 {
+  constexpr auto expected_sum      = 10.0;
+  constexpr auto expected_average  =  2.5;
+  constexpr auto expected_minimum  =  1.0;
+  constexpr auto expected_maximum  =  4.0;
+  constexpr auto expected_variance =  1.25;
   const auto record = benchmark::record<duration> {
     "fixed",
     {duration {1.0}, duration {2.0}, duration {3.0}, duration {4.0}}
@@ -38,14 +43,14 @@ TEST_CASE("benchmark::record statistics use chrono durations")
   const auto first  = record.values.begin();
   const auto last   = record.values.end  ();
 
-  CHECK(std::accumulate(first, last, duration {}).count() == doctest::Approx(10.0));
-  CHECK(benchmark::mean                    (first, last).count() == doctest::Approx( 2.5));
-  CHECK(benchmark::median                  (first, last).count() == doctest::Approx( 2.5));
-  CHECK(benchmark::minimum                 (first, last).count() == doctest::Approx( 1.0));
-  CHECK(benchmark::maximum                 (first, last).count() == doctest::Approx( 4.0));
-  CHECK(benchmark::variance                (first, last)         == doctest::Approx(1.25));
-  CHECK(benchmark::standard_deviation      (first, last).count() == doctest::Approx(std::sqrt(1.25)));
-  CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(std::sqrt(1.25) / 2.5));
+  CHECK(std::accumulate(first, last, duration {}).count() == doctest::Approx(expected_sum));
+  CHECK(benchmark::mean                    (first, last).count() == doctest::Approx(expected_average));
+  CHECK(benchmark::median                  (first, last).count() == doctest::Approx(expected_average));
+  CHECK(benchmark::minimum                 (first, last).count() == doctest::Approx(expected_minimum));
+  CHECK(benchmark::maximum                 (first, last).count() == doctest::Approx(expected_maximum));
+  CHECK(benchmark::variance                (first, last)         == doctest::Approx(expected_variance));
+  CHECK(benchmark::standard_deviation      (first, last).count() == doctest::Approx(std::sqrt(expected_variance)));
+  CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(std::sqrt(expected_variance) / expected_average));
 }
 
 TEST_CASE("benchmark::run records a single callable")
@@ -70,7 +75,8 @@ TEST_CASE("benchmark::run records a single callable")
 
 TEST_CASE("benchmark::run records named session entries")
 {
-  auto buffer = std::vector<std::size_t>(1000);
+  constexpr auto buffer_size = std::size_t {1000};
+  auto buffer = std::vector<std::size_t>(buffer_size);
 
   const auto session = benchmark::run<duration>([&buffer] (auto& recorder)
   {
