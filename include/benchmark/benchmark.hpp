@@ -6,8 +6,8 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <numeric>
 #include <ostream>
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -78,67 +78,81 @@ struct record
   using value_type = duration_type;
   using rep        = typename duration_type::rep;
 
-  [[nodiscard]] constexpr duration_type sum                     () const
-  {
-    auto result = duration_type {};
-    for (const auto value : values)
-      result += value;
-    return result;
-  }
-  [[nodiscard]] constexpr duration_type mean                    () const
-  {
-    return values.empty() ? duration_type {} : sum() / static_cast<rep>(values.size());
-  }
-  [[nodiscard]] constexpr duration_type minimum                 () const
-  {
-    return values.empty() ? duration_type {} : *std::ranges::min_element(values);
-  }
-  [[nodiscard]] constexpr duration_type maximum                 () const
-  {
-    return values.empty() ? duration_type {} : *std::ranges::max_element(values);
-  }
-  [[nodiscard]] constexpr duration_type median                  () const
-  {
-    if (values.empty())
-      return duration_type {};
-
-    auto sorted = values;
-    std::ranges::sort(sorted);
-    const auto middle = sorted.size() / 2;
-    if (sorted.size() % 2 != 0)
-      return sorted[middle];
-
-    return (sorted[middle - 1] + sorted[middle]) / static_cast<rep>(2);
-  }
-  [[nodiscard]] constexpr rep           variance                () const
-  {
-    if (values.empty())
-      return rep {};
-
-    const auto average = mean().count();
-    const auto squared = [average] (const auto value) constexpr noexcept
-    {
-      const auto difference = value.count() - average;
-      return difference * difference;
-    };
-    auto total = rep {};
-    for (const auto value : values)
-      total += squared(value);
-    return total / static_cast<rep>(values.size());
-  }
-  [[nodiscard]] duration_type           standard_deviation      () const noexcept
-  {
-    return duration_type {std::sqrt(variance())};
-  }
-  [[nodiscard]] rep                     coefficient_of_variation() const noexcept
-  {
-    const auto average = mean().count();
-    return average == rep {} ? rep {} : standard_deviation().count() / average;
-  }
-
   std::string                name  ;
   std::vector<duration_type> values;
 };
+
+template <detail::duration duration_type>
+[[nodiscard]] constexpr duration_type sum(const record<duration_type>& record)
+{
+  return std::reduce(record.values.begin(), record.values.end(), duration_type {});
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] constexpr duration_type mean(const record<duration_type>& record)
+{
+  using rep = typename duration_type::rep;
+  return record.values.empty() ? duration_type {} : sum(record) / static_cast<rep>(record.values.size());
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] constexpr duration_type minimum(const record<duration_type>& record)
+{
+  return record.values.empty() ? duration_type {} : *std::min_element(record.values.begin(), record.values.end());
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] constexpr duration_type maximum(const record<duration_type>& record)
+{
+  return record.values.empty() ? duration_type {} : *std::max_element(record.values.begin(), record.values.end());
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] constexpr duration_type median(const record<duration_type>& record)
+{
+  if (record.values.empty())
+    return duration_type {};
+
+  auto sorted = record.values;
+  std::sort(sorted.begin(), sorted.end());
+  const auto middle = sorted.size() / 2;
+  if (sorted.size() % 2 != 0)
+    return sorted[middle];
+
+  using rep = typename duration_type::rep;
+  return (sorted[middle - 1] + sorted[middle]) / static_cast<rep>(2);
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] constexpr typename duration_type::rep variance(const record<duration_type>& record)
+{
+  using rep = typename duration_type::rep;
+  if (record.values.empty())
+    return rep {};
+
+  const auto average = mean(record).count();
+  const auto total = std::transform_reduce(record.values.begin(), record.values.end(), rep {}, std::plus {},
+                                           [average] (const duration_type value) constexpr noexcept
+                                           {
+                                             const auto difference = value.count() - average;
+                                             return difference * difference;
+                                           });
+  return total / static_cast<rep>(record.values.size());
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] duration_type standard_deviation(const record<duration_type>& record) noexcept
+{
+  return duration_type {std::sqrt(variance(record))};
+}
+
+template <detail::duration duration_type>
+[[nodiscard]] typename duration_type::rep coefficient_of_variation(const record<duration_type>& record) noexcept
+{
+  using rep = typename duration_type::rep;
+  const auto average = mean(record).count();
+  return average == rep {} ? rep {} : standard_deviation(record).count() / average;
+}
 
 template <detail::duration duration_type = std::chrono::duration<double, std::nano>>
 class  session
@@ -235,7 +249,7 @@ template <detail::duration duration_type>
 std::ostream& write_console(std::ostream& stream, const record<duration_type>& record)
 {
   return stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n"
-                << record.name << ' ' << record.mean().count() << ' ' << record.values.size() << '\n';
+                << record.name << ' ' << mean(record).count() << ' ' << record.values.size() << '\n';
 }
 
 template <detail::duration duration_type>
@@ -243,7 +257,7 @@ std::ostream& write_console(std::ostream& stream, const session<duration_type>& 
 {
   stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
   for (const auto& record : session.records())
-    stream << record.name << ' ' << record.mean().count() << ' ' << record.values.size() << '\n';
+    stream << record.name << ' ' << mean(record).count() << ' ' << record.values.size() << '\n';
   return stream;
 }
 
@@ -252,7 +266,7 @@ std::ostream& write_csv(std::ostream& stream, const record<duration_type>& recor
 {
   stream << "name,iterations,real_time,time_unit\n";
   detail::write_csv_name(stream, record.name);
-  return stream << ',' << record.values.size() << ',' << record.mean().count() << ',' << detail::unit<duration_type>() << '\n';
+  return stream << ',' << record.values.size() << ',' << mean(record).count() << ',' << detail::unit<duration_type>() << '\n';
 }
 
 template <detail::duration duration_type>
@@ -262,7 +276,7 @@ std::ostream& write_csv(std::ostream& stream, const session<duration_type>& sess
   for (const auto& record : session.records())
   {
     detail::write_csv_name(stream, record.name);
-    stream << ',' << record.values.size() << ',' << record.mean().count() << ',' << detail::unit<duration_type>() << '\n';
+    stream << ',' << record.values.size() << ',' << mean(record).count() << ',' << detail::unit<duration_type>() << '\n';
   }
   return stream;
 }
@@ -273,7 +287,7 @@ std::ostream& write_json(std::ostream& stream, const record<duration_type>& reco
   stream << "{\"benchmarks\":[{\"name\":";
   detail::write_json_name(stream, record.name);
   return stream << ",\"iterations\":" << record.values.size()
-                << ",\"real_time\":" << record.mean().count() << ",\"time_unit\":\"" << detail::unit<duration_type>() << "\"}]}\n";
+                << ",\"real_time\":" << mean(record).count() << ",\"time_unit\":\"" << detail::unit<duration_type>() << "\"}]}\n";
 }
 
 template <detail::duration duration_type>
@@ -288,7 +302,7 @@ std::ostream& write_json(std::ostream& stream, const session<duration_type>& ses
     stream << "{\"name\":";
     detail::write_json_name(stream, record.name);
     stream << ",\"iterations\":" << record.values.size()
-           << ",\"real_time\":" << record.mean().count() << ",\"time_unit\":\"" << detail::unit<duration_type>() << "\"}";
+           << ",\"real_time\":" << mean(record).count() << ",\"time_unit\":\"" << detail::unit<duration_type>() << "\"}";
   }
   return stream << "]}\n";
 }
