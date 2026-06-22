@@ -35,8 +35,8 @@ int main()
     std::ranges::sort(values);
   }, 100);
 
-  std::println("mean: {} ms", record.mean().count());
-  std::println("standard deviation: {} ms", record.standard_deviation().count());
+  std::println("mean: {} ms", benchmark::mean(record.values.begin(), record.values.end()).count());
+  std::println("standard deviation: {} ms", benchmark::standard_deviation(record.values.begin(), record.values.end()).count());
 
   const auto session = benchmark::run<milliseconds>([&] (auto& recorder)
   {
