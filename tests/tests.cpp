@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <numeric>
-#include <ranges>
+#include <ratio>
 #include <sstream>
 #include <vector>
 
@@ -53,7 +53,7 @@ TEST_CASE("benchmark::record statistics use chrono durations")
   CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(std::sqrt(expected_variance) / expected_average));
 }
 
-TEST_CASE("benchmark::run records a single callable")
+TEST_CASE("benchmark::run records a single callable") // NOLINT(readability-function-cognitive-complexity)
 {
   auto counter = std::size_t {};
 
@@ -73,7 +73,7 @@ TEST_CASE("benchmark::run records a single callable")
   CHECK(benchmark::mean   (first, last) >= duration {});
 }
 
-TEST_CASE("benchmark::run records named session entries")
+TEST_CASE("benchmark::run records named session entries") // NOLINT(readability-function-cognitive-complexity)
 {
   constexpr auto buffer_size = std::size_t {1000};
   auto buffer = std::vector<std::size_t>(buffer_size);
@@ -87,7 +87,7 @@ TEST_CASE("benchmark::run records named session entries")
     recorder.record("generate", [&buffer]
     {
       auto value = std::size_t {};
-      std::ranges::generate(buffer, [&value] { return value++; });
+      std::generate(buffer.begin(), buffer.end(), [&value] { return value++; });
     });
   }, 10);
 
@@ -113,7 +113,7 @@ TEST_CASE("benchmark::run reuses session records by name")
   CHECK  (session.records   ()[0].values.size() == 3     );
 }
 
-TEST_CASE("benchmark reporters produce console csv and json output")
+TEST_CASE("benchmark reporters produce console csv and json output") // NOLINT(readability-function-cognitive-complexity)
 {
   const auto record  = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}}};
   const auto session = benchmark::run<duration>([] (auto& recorder)

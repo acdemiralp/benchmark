@@ -10,6 +10,7 @@
 #include <iterator>
 #include <numeric>
 #include <ostream>
+#include <ratio>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -57,7 +58,7 @@ template <duration duration_type>
     return "ticks";
   }
 }
-}
+}  // namespace detail
 
 template <detail::duration duration_type = std::chrono::duration<double, std::nano>>
 struct record
@@ -184,10 +185,19 @@ template <detail::duration duration_type = std::chrono::duration<double, std::na
 class  session_recorder
 {
 public:
-  session_recorder  (const std::size_t index,
-                     const std::size_t iterations,
+  struct index_type
+  {
+    std::size_t value;
+  };
+  struct iterations_type
+  {
+    std::size_t value;
+  };
+
+  session_recorder  (const index_type index,
+                     const iterations_type iterations,
                      session<duration_type>& session) noexcept
-  : index_(index), iterations_(iterations), session_(session)
+  : index_(index.value), iterations_(iterations.value), session_(session)
   {
 
   }
@@ -241,7 +251,10 @@ requires std::invocable<function_type&, session_recorder<duration_type, clock_ty
   auto session = benchmark::session<duration_type> {};
   for (auto i = std::size_t {}; i < iterations; ++i)
   {
-    auto recorder = session_recorder<duration_type, clock_type> {i, iterations, session};
+    auto recorder = session_recorder<duration_type, clock_type> {
+      typename session_recorder<duration_type, clock_type>::index_type      {i},
+      typename session_recorder<duration_type, clock_type>::iterations_type {iterations},
+      session};
     std::invoke(session_callable, recorder);
   }
   return session;
@@ -274,7 +287,7 @@ void write_json_record(std::ostream& stream, const record<duration_type>& record
          << ",\"real_time\":" << mean(record.values.begin(), record.values.end()).count()
          << R"(,"time_unit":")" << unit<duration_type>() << "\"}";
 }
-}
+}  // namespace detail
 
 template <detail::duration duration_type>
 auto write_console(std::ostream& stream, const record<duration_type>& record) -> std::ostream&
@@ -338,6 +351,6 @@ auto write_json(std::ostream& stream, const session<duration_type>& session) -> 
   }
   return stream << "]}\n";
 }
-}
+}  // namespace benchmark
 
 #endif
