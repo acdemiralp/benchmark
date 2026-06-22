@@ -1,4 +1,5 @@
-#pragma once
+#ifndef BENCHMARK_BENCHMARK_HPP
+#define BENCHMARK_BENCHMARK_HPP
 
 #include <algorithm>
 #include <chrono>
@@ -22,8 +23,6 @@ template <typename type>
 inline constexpr auto is_duration                                                : std::false_type {};
 template <typename representation, typename period>
 inline constexpr auto is_duration<std::chrono::duration<representation, period>> : std::true_type  {};
-template <class T>
-inline constexpr bool is_duration_v                                              = is_duration<T>::value;
 
 template <typename type>
 concept duration = is_duration<type> && requires
@@ -37,15 +36,25 @@ template <duration duration_type>
 {
   using period = typename duration_type::period;
   if constexpr (std::same_as<period, std::nano>)
+  {
     return "ns";
+  }
   else if constexpr (std::same_as<period, std::micro>)
+  {
     return "us";
+  }
   else if constexpr (std::same_as<period, std::milli>)
+  {
     return "ms";
+  }
   else if constexpr (std::same_as<period, std::ratio<1>>)
+  {
     return "s";
+  }
   else
+  {
     return "ticks";
+  }
 }
 }
 
@@ -138,12 +147,12 @@ public:
   using record_type = record<duration_type>;
 
   [[nodiscard]]
-  constexpr std::size_t                     iterations() const noexcept
+  std::size_t                               iterations() const noexcept
   {
     return records_.empty() ? std::size_t {} : records_.front().values.size();
   }
   [[nodiscard]]
-  constexpr const std::vector<record_type>& records   () const noexcept
+  const std::vector<record_type>&           records   () const noexcept
   {
     return records_;
   }
@@ -157,7 +166,9 @@ private:
     const auto key             = std::string {name};
     const auto [index, insert] = indices_.try_emplace(key, records_.size());
     if (insert)
+    {
       records_.emplace_back(index->first, std::vector<duration_type>(iterations));
+    }
     return records_[index->second];
   }
 
@@ -169,16 +180,18 @@ template <detail::duration duration_type = std::chrono::duration<double, std::na
 class  session_recorder
 {
 public:
-  explicit constexpr session_recorder  (const std::size_t index, const std::size_t iterations, session<duration_type>& session) noexcept
+  session_recorder  (const std::size_t index,
+                     const std::size_t iterations,
+                     session<duration_type>& session) noexcept
   : index_(index), iterations_(iterations), session_(session)
   {
 
   }
-  constexpr session_recorder           (const session_recorder&  that) = delete;
-  constexpr session_recorder           (      session_recorder&& temp) = delete;
-  constexpr ~session_recorder          () noexcept                     = default;
-  constexpr session_recorder& operator=(const session_recorder&  that) = delete;
-  constexpr session_recorder& operator=(      session_recorder&& temp) = delete;
+  session_recorder           (const session_recorder& ) = delete;
+  session_recorder           (      session_recorder&&) = delete;
+  ~session_recorder          () noexcept                = default;
+  session_recorder& operator=(const session_recorder& ) = delete;
+  session_recorder& operator=(      session_recorder&&) = delete;
 
   template <typename function_type>
   requires std::invocable<function_type&>
@@ -191,7 +204,7 @@ public:
     result.values[index_] = std::chrono::duration_cast<duration_type>(end - start);
   }
 
-protected:
+private:
   const std::size_t       index_     ;
   const std::size_t       iterations_;
   session<duration_type>& session_   ;
@@ -236,7 +249,9 @@ std::ostream& write_console(std::ostream& stream, const session<duration_type>& 
 {
   stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
   for (const auto& record : session.records())
+  {
     stream << record.name << ' ' << mean(record.values.begin(), record.values.end()).count() << ' ' << record.values.size() << '\n';
+  }
   return stream;
 }
 
@@ -253,8 +268,10 @@ std::ostream& write_csv(std::ostream& stream, const session<duration_type>& sess
 {
   stream << "name,iterations,real_time,time_unit\n";
   for (const auto& record : session.records())
+  {
     stream << record.name << ',' << record.values.size() << ',' << mean(record.values.begin(), record.values.end()).count() << ','
            << detail::unit<duration_type>() << '\n';
+  }
   return stream;
 }
 
@@ -280,3 +297,5 @@ std::ostream& write_json(std::ostream& stream, const session<duration_type>& ses
   return stream << "]}\n";
 }
 }
+
+#endif
