@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <numeric>
-#include <ranges>
+#include <ratio>
 #include <sstream>
 #include <vector>
 
@@ -31,28 +31,36 @@ TEST_CASE("benchmark::record statistics are empty-safe")
 
 TEST_CASE("benchmark::record statistics use chrono durations")
 {
-  const auto record = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}, duration {3.0}, duration {4.0}}};
+  constexpr auto expected_sum      = 10.0;
+  constexpr auto expected_average  =  2.5;
+  constexpr auto expected_minimum  =  1.0;
+  constexpr auto expected_maximum  =  4.0;
+  constexpr auto expected_variance =  1.25;
+  const auto record = benchmark::record<duration> {
+    "fixed",
+    {duration {1.0}, duration {2.0}, duration {3.0}, duration {4.0}}
+  };
   const auto first  = record.values.begin();
   const auto last   = record.values.end  ();
 
-  CHECK(std::accumulate(first, last, duration {}).count() == doctest::Approx(10.0));
-  CHECK(benchmark::mean                    (first, last).count() == doctest::Approx( 2.5));
-  CHECK(benchmark::median                  (first, last).count() == doctest::Approx( 2.5));
-  CHECK(benchmark::minimum                 (first, last).count() == doctest::Approx( 1.0));
-  CHECK(benchmark::maximum                 (first, last).count() == doctest::Approx( 4.0));
-  CHECK(benchmark::variance                (first, last)         == doctest::Approx(1.25));
-  CHECK(benchmark::standard_deviation      (first, last).count() == doctest::Approx(std::sqrt(1.25)));
-  CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(std::sqrt(1.25) / 2.5));
+  CHECK(std::accumulate(first, last, duration {}).count() == doctest::Approx(expected_sum));
+  CHECK(benchmark::mean                    (first, last).count() == doctest::Approx(expected_average));
+  CHECK(benchmark::median                  (first, last).count() == doctest::Approx(expected_average));
+  CHECK(benchmark::minimum                 (first, last).count() == doctest::Approx(expected_minimum));
+  CHECK(benchmark::maximum                 (first, last).count() == doctest::Approx(expected_maximum));
+  CHECK(benchmark::variance                (first, last)         == doctest::Approx(expected_variance));
+  CHECK(benchmark::standard_deviation      (first, last).count() == doctest::Approx(std::sqrt(expected_variance)));
+  CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(std::sqrt(expected_variance) / expected_average));
 }
 
-TEST_CASE("benchmark::run records a single callable")
+TEST_CASE("benchmark::run records a single callable") // NOLINT(readability-function-cognitive-complexity)
 {
   auto counter = std::size_t {};
 
   const auto record = benchmark::run<duration>([&]
   {
     ++counter;
-  }, 10 /* iterations */);
+  }, 10);
 
   CHECK(record.name          == "benchmark");
   CHECK(record.values.size() == 10);
@@ -65,9 +73,10 @@ TEST_CASE("benchmark::run records a single callable")
   CHECK(benchmark::mean   (first, last) >= duration {});
 }
 
-TEST_CASE("benchmark::run records named session entries")
+TEST_CASE("benchmark::run records named session entries") // NOLINT(readability-function-cognitive-complexity)
 {
-  auto buffer = std::vector<std::size_t>(1000);
+  constexpr auto buffer_size = std::size_t {1000};
+  auto buffer = std::vector<std::size_t>(buffer_size);
 
   const auto session = benchmark::run<duration>([&buffer] (auto& recorder)
   {
@@ -78,9 +87,9 @@ TEST_CASE("benchmark::run records named session entries")
     recorder.record("generate", [&buffer]
     {
       auto value = std::size_t {};
-      std::ranges::generate(buffer, [&value] { return value++; });
+      std::generate(buffer.begin(), buffer.end(), [&value] { return value++; });
     });
-  }, 10 /* iterations */);
+  }, 10);
 
   REQUIRE(session.records   ().size() == 2);
   CHECK  (session.iterations   () == 10);
@@ -96,7 +105,7 @@ TEST_CASE("benchmark::run reuses session records by name")
   {
     recorder.record("same", [] {});
     recorder.record("same", [] {});
-  }, 3 /* iterations */);
+  }, 3);
 
   REQUIRE(session.records   ().size() == 1);
   CHECK  (session.iterations() == 3);
@@ -104,14 +113,14 @@ TEST_CASE("benchmark::run reuses session records by name")
   CHECK  (session.records   ()[0].values.size() == 3     );
 }
 
-TEST_CASE("benchmark reporters produce console csv and json output")
+TEST_CASE("benchmark reporters produce console csv and json output") // NOLINT(readability-function-cognitive-complexity)
 {
   const auto record  = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}}};
   const auto session = benchmark::run<duration>([] (auto& recorder)
   {
     recorder.record("alpha", [] {});
     recorder.record("beta" , [] {});
-  }, 2 /* iterations */);
+  }, 2);
 
   auto stream = std::ostringstream {};
   benchmark::write_console(stream, record);
@@ -124,7 +133,8 @@ TEST_CASE("benchmark reporters produce console csv and json output")
 
   stream.str({});
   benchmark::write_json(stream, record);
-  CHECK(stream.str() == "{\"benchmarks\":[{\"name\":\"fixed\",\"iterations\":2,\"real_time\":1.5,\"time_unit\":\"ms\"}]}\n");
+  CHECK(stream.str() == "{\"benchmarks\":[{\"name\":\"fixed\",\"iterations\":2,\"real_time\":1.5,"
+                        "\"time_unit\":\"ms\"}]}\n");
 
   stream.str({});
   benchmark::write_console(stream, session);
