@@ -20,9 +20,9 @@ namespace benchmark
 namespace detail
 {
 template <typename type>
-inline constexpr auto is_duration                                                : std::false_type {};
+inline constexpr auto is_duration                                                = false;
 template <typename representation, typename period>
-inline constexpr auto is_duration<std::chrono::duration<representation, period>> : std::true_type  {};
+inline constexpr auto is_duration<std::chrono::duration<representation, period>> = true;
 
 template <typename type>
 concept duration = is_duration<type> && requires
