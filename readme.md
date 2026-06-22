@@ -27,9 +27,9 @@ std::int32_t main(std::int32_t argc, char** argv)
     std::ranges::sort(values);
   }, 100);
 
-  std::print     (record);
-  record .to_csv ("benchmark.csv" );
-  record .to_json("benchmark.json");
+  record.write_console(std::cout);
+  record.write_csv    (std::cout);
+  record.write_json   (std::cout);
 
   const auto session = benchmark::run<std::chrono::duration<double, std::milli>>([&] (auto& recorder)
   {
@@ -39,9 +39,9 @@ std::int32_t main(std::int32_t argc, char** argv)
     });
   }, 100);
 
-  std::print     (session);
-  session.to_csv ("benchmark.csv" );
-  session.to_json("benchmark.json");
+  session.write_console(std::cout);
+  session.write_csv    (std::cout);
+  session.write_json   (std::cout);
 
   return 0;
 }

@@ -113,6 +113,23 @@ TEST_CASE("benchmark::run reuses session records by name")
   CHECK  (session.records   ()[0].values.size() == 3     );
 }
 
+TEST_CASE("benchmark::session_recorder forwards callable arguments")
+{
+  auto value = std::size_t {};
+
+  const auto session = benchmark::run<duration>([&value] (auto& recorder)
+  {
+    recorder.record("add", [] (auto& target, const auto amount)
+    {
+      target += amount;
+    }, value, std::size_t {2});
+  }, 3);
+
+  CHECK(value == 6);
+  REQUIRE(session.records   ().size() == 1);
+  CHECK  (session.records   ()[0].name == "add");
+}
+
 TEST_CASE("benchmark reporters produce console csv and json output") // NOLINT(readability-function-cognitive-complexity)
 {
   const auto record  = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}}};
@@ -123,28 +140,28 @@ TEST_CASE("benchmark reporters produce console csv and json output") // NOLINT(r
   }, 2);
 
   auto stream = std::ostringstream {};
-  benchmark::write_console(stream, record);
+  record.write_console(stream);
   CHECK(stream.str().contains("Benchmark Time(ms) Iterations"));
   CHECK(stream.str().contains("fixed 1.5 2"));
 
   stream.str({});
-  benchmark::write_csv(stream, record);
+  record.write_csv(stream);
   CHECK(stream.str() == "name,iterations,real_time,time_unit\nfixed,2,1.5,ms\n");
 
   stream.str({});
-  benchmark::write_json(stream, record);
+  record.write_json(stream);
   CHECK(stream.str() == "{\"benchmarks\":[{\"name\":\"fixed\",\"iterations\":2,\"real_time\":1.5,"
                         "\"time_unit\":\"ms\"}]}\n");
 
   stream.str({});
-  benchmark::write_console(stream, session);
+  session.write_console(stream);
   CHECK(stream.str().contains("alpha"));
 
   stream.str({});
-  benchmark::write_csv(stream, session);
+  session.write_csv(stream);
   CHECK(stream.str().contains("beta,2,"));
 
   stream.str({});
-  benchmark::write_json(stream, session);
+  session.write_json(stream);
   CHECK(stream.str().contains("\"name\":\"alpha\""));
 }

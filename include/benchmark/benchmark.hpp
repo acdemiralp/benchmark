@@ -58,6 +58,22 @@ template <duration duration_type>
     return "ticks";
   }
 }
+
+enum class report_format
+{
+  console,
+  csv,
+  json
+};
+}  // namespace detail
+
+template <detail::duration duration_type>
+struct record;
+
+namespace detail
+{
+template <duration duration_type>
+auto write_record(std::ostream& stream, const benchmark::record<duration_type>& record, report_format format) -> std::ostream&;
 }  // namespace detail
 
 template <detail::duration duration_type = std::chrono::duration<double, std::nano>>
@@ -65,6 +81,23 @@ struct record
 {
   using value_type = duration_type;
   using rep        = typename duration_type::rep;
+
+  auto write_console(std::ostream& stream) const -> std::ostream&
+  {
+    stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
+    return detail::write_record(stream, *this, detail::report_format::console);
+  }
+  auto write_csv    (std::ostream& stream) const -> std::ostream&
+  {
+    stream << "name,iterations,real_time,time_unit\n";
+    return detail::write_record(stream, *this, detail::report_format::csv);
+  }
+  auto write_json   (std::ostream& stream) const -> std::ostream&
+  {
+    stream << "{\"benchmarks\":[";
+    detail::write_record(stream, *this, detail::report_format::json);
+    return stream << "]}\n";
+  }
 
   std::string                name  ;
   std::vector<duration_type> values;
@@ -160,6 +193,39 @@ public:
   {
     return records_;
   }
+  auto                                      write_console(std::ostream& stream) const -> std::ostream&
+  {
+    stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
+    for (const auto& record : records_)
+    {
+      detail::write_record(stream, record, detail::report_format::console);
+    }
+    return stream;
+  }
+  auto                                      write_csv    (std::ostream& stream) const -> std::ostream&
+  {
+    stream << "name,iterations,real_time,time_unit\n";
+    for (const auto& record : records_)
+    {
+      detail::write_record(stream, record, detail::report_format::csv);
+    }
+    return stream;
+  }
+  auto                                      write_json   (std::ostream& stream) const -> std::ostream&
+  {
+    stream << "{\"benchmarks\":[";
+    auto first = true;
+    for (const auto& record : records_)
+    {
+      if (!first)
+      {
+        stream << ',';
+      }
+      first = false;
+      detail::write_record(stream, record, detail::report_format::json);
+    }
+    return stream << "]}\n";
+  }
 
 private:
   template <detail::duration, typename>
@@ -185,34 +251,20 @@ template <detail::duration duration_type = std::chrono::duration<double, std::na
 class  session_recorder
 {
 public:
-  struct index_type
-  {
-    std::size_t value;
-  };
-  struct iterations_type
-  {
-    std::size_t value;
-  };
-
-  session_recorder  (const index_type index,
-                     const iterations_type iterations,
+  session_recorder  (const std::size_t index,
+                     const std::size_t iterations,
                      session<duration_type>& session) noexcept
-  : index_(index.value), iterations_(iterations.value), session_(session)
+  : index_(index), iterations_(iterations), session_(session)
   {
 
   }
-  session_recorder           (const session_recorder& ) = delete;
-  session_recorder           (      session_recorder&&) = delete;
-  ~session_recorder          () noexcept                = default;
-  auto operator=(const session_recorder& ) -> session_recorder& = delete;
-  auto operator=(      session_recorder&&) -> session_recorder& = delete;
 
-  template <typename function_type>
-  requires std::invocable<function_type&>
-  constexpr void record(const std::string_view name, function_type&& function)
+  template <typename function_type, typename... argument_types>
+  requires std::invocable<function_type&, argument_types...>
+  constexpr void record(const std::string_view name, function_type&& function, argument_types&&... arguments)
   {
     const auto start = clock_type::now();
-    std::invoke(std::forward<function_type>(function));
+    std::invoke(function, std::forward<argument_types>(arguments)...);
     const auto end    = clock_type::now();
     auto&      result = session_.entry(name, iterations_);
     result.values[index_] = std::chrono::duration_cast<duration_type>(end - start);
@@ -251,10 +303,7 @@ requires std::invocable<function_type&, session_recorder<duration_type, clock_ty
   auto session = benchmark::session<duration_type> {};
   for (auto i = std::size_t {}; i < iterations; ++i)
   {
-    auto recorder = session_recorder<duration_type, clock_type> {
-      typename session_recorder<duration_type, clock_type>::index_type      {i},
-      typename session_recorder<duration_type, clock_type>::iterations_type {iterations},
-      session};
+    auto recorder = session_recorder<duration_type, clock_type> {i, iterations, session};
     std::invoke(session_callable, recorder);
   }
   return session;
@@ -263,94 +312,24 @@ requires std::invocable<function_type&, session_recorder<duration_type, clock_ty
 namespace detail
 {
 template <duration duration_type>
-void write_console_record(std::ostream& stream, const record<duration_type>& record)
+auto write_record(std::ostream& stream, const record<duration_type>& record, report_format format) -> std::ostream&
 {
-  stream << record.name << ' '
-         << mean(record.values.begin(), record.values.end()).count() << ' '
-         << record.values.size() << '\n';
-}
+  const auto real_time = mean(record.values.begin(), record.values.end()).count();
+  if (format == report_format::console)
+  {
+    return stream << record.name << ' ' << real_time << ' ' << record.values.size() << '\n';
+  }
+  if (format == report_format::csv)
+  {
+    return stream << record.name << ',' << record.values.size() << ',' << real_time << ',' << unit<duration_type>() << '\n';
+  }
 
-template <duration duration_type>
-void write_csv_record(std::ostream& stream, const record<duration_type>& record)
-{
-  stream << record.name << ','
-         << record.values.size() << ','
-         << mean(record.values.begin(), record.values.end()).count() << ','
-         << unit<duration_type>() << '\n';
-}
-
-template <duration duration_type>
-void write_json_record(std::ostream& stream, const record<duration_type>& record)
-{
-  stream << R"({"name":")" << record.name
-         << R"(","iterations":)" << record.values.size()
-         << ",\"real_time\":" << mean(record.values.begin(), record.values.end()).count()
-         << R"(,"time_unit":")" << unit<duration_type>() << "\"}";
+  return stream << R"({"name":")" << record.name
+                << R"(","iterations":)" << record.values.size()
+                << ",\"real_time\":" << real_time
+                << R"(,"time_unit":")" << unit<duration_type>() << "\"}";
 }
 }  // namespace detail
-
-template <detail::duration duration_type>
-auto write_console(std::ostream& stream, const record<duration_type>& record) -> std::ostream&
-{
-  stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
-  detail::write_console_record(stream, record);
-  return stream;
-}
-
-template <detail::duration duration_type>
-auto write_console(std::ostream& stream, const session<duration_type>& session) -> std::ostream&
-{
-  stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
-  for (const auto& record : session.records())
-  {
-    detail::write_console_record(stream, record);
-  }
-  return stream;
-}
-
-template <detail::duration duration_type>
-auto write_csv(std::ostream& stream, const record<duration_type>& record) -> std::ostream&
-{
-  stream << "name,iterations,real_time,time_unit\n";
-  detail::write_csv_record(stream, record);
-  return stream;
-}
-
-template <detail::duration duration_type>
-auto write_csv(std::ostream& stream, const session<duration_type>& session) -> std::ostream&
-{
-  stream << "name,iterations,real_time,time_unit\n";
-  for (const auto& record : session.records())
-  {
-    detail::write_csv_record(stream, record);
-  }
-  return stream;
-}
-
-template <detail::duration duration_type>
-auto write_json(std::ostream& stream, const record<duration_type>& record) -> std::ostream&
-{
-  stream << "{\"benchmarks\":[";
-  detail::write_json_record(stream, record);
-  return stream << "]}\n";
-}
-
-template <detail::duration duration_type>
-auto write_json(std::ostream& stream, const session<duration_type>& session) -> std::ostream&
-{
-  stream << "{\"benchmarks\":[";
-  auto first = true;
-  for (const auto& record : session.records())
-  {
-    if (!first)
-    {
-      stream << ',';
-    }
-    first = false;
-    detail::write_json_record(stream, record);
-  }
-  return stream << "]}\n";
-}
 }  // namespace benchmark
 
 #endif
