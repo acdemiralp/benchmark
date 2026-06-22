@@ -19,10 +19,11 @@ namespace benchmark
 namespace detail
 {
 template <typename type>
-inline constexpr auto is_duration = false;
-
+inline constexpr auto is_duration                                                : std::false_type {};
 template <typename representation, typename period>
-inline constexpr auto is_duration<std::chrono::duration<representation, period>> = true;
+inline constexpr auto is_duration<std::chrono::duration<representation, period>> : std::true_type  {};
+template <class T>
+inline constexpr bool is_duration_v                                              = is_duration<T>::value;
 
 template <typename type>
 concept duration = is_duration<type> && requires
@@ -136,11 +137,13 @@ class  session
 public:
   using record_type = record<duration_type>;
 
-  [[nodiscard]] constexpr std::size_t iterations() const noexcept
+  [[nodiscard]]
+  constexpr std::size_t                     iterations() const noexcept
   {
     return records_.empty() ? std::size_t {} : records_.front().values.size();
   }
-  [[nodiscard]] constexpr const std::vector<record_type>& records() const noexcept
+  [[nodiscard]]
+  constexpr const std::vector<record_type>& records   () const noexcept
   {
     return records_;
   }

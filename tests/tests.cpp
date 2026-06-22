@@ -99,14 +99,14 @@ TEST_CASE("benchmark::run reuses session records by name")
   }, 3 /* iterations */);
 
   REQUIRE(session.records   ().size() == 1);
-  CHECK  (session.iterations   () == 3);
-  CHECK  (session.records()[0].name          == "same");
-  CHECK  (session.records()[0].values.size() == 3);
+  CHECK  (session.iterations() == 3);
+  CHECK  (session.records   ()[0].name          == "same");
+  CHECK  (session.records   ()[0].values.size() == 3     );
 }
 
 TEST_CASE("benchmark reporters produce console csv and json output")
 {
-  const auto record = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}}};
+  const auto record  = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}}};
   const auto session = benchmark::run<duration>([] (auto& recorder)
   {
     recorder.record("alpha", [] {});
