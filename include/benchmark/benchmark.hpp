@@ -176,7 +176,8 @@ private:
   std::unordered_map<std::string, std::size_t> indices_;
 };
 
-template <detail::duration duration_type = std::chrono::duration<double, std::nano>, typename clock_type = std::chrono::steady_clock>
+template <detail::duration duration_type = std::chrono::duration<double, std::nano>,
+          typename clock_type = std::chrono::steady_clock>
 class  session_recorder
 {
 public:
@@ -210,7 +211,9 @@ private:
   session<duration_type>& session_   ;
 };
 
-template<detail::duration duration_type = std::chrono::duration<double, std::nano>, typename clock_type = std::chrono::steady_clock, typename function_type>
+template <detail::duration duration_type = std::chrono::duration<double, std::nano>,
+          typename clock_type = std::chrono::steady_clock,
+          typename function_type>
 requires std::invocable<function_type&>
 [[nodiscard]] record<duration_type>   run(function_type&& function, const std::size_t iterations = 1)
 {
@@ -224,7 +227,9 @@ requires std::invocable<function_type&>
   }
   return record;
 }
-template<detail::duration duration_type = std::chrono::duration<double, std::nano>, typename clock_type = std::chrono::steady_clock, typename function_type>
+template <detail::duration duration_type = std::chrono::duration<double, std::nano>,
+          typename clock_type = std::chrono::steady_clock,
+          typename function_type>
 requires std::invocable<function_type&, session_recorder<duration_type, clock_type>&>
 [[nodiscard]] session<duration_type>  run(function_type&& function, const std::size_t iterations = 1)
 {
@@ -237,11 +242,41 @@ requires std::invocable<function_type&, session_recorder<duration_type, clock_ty
   return session;
 }
 
+namespace detail
+{
+template <duration duration_type>
+void write_console_record(std::ostream& stream, const record<duration_type>& record)
+{
+  stream << record.name << ' '
+         << mean(record.values.begin(), record.values.end()).count() << ' '
+         << record.values.size() << '\n';
+}
+
+template <duration duration_type>
+void write_csv_record(std::ostream& stream, const record<duration_type>& record)
+{
+  stream << record.name << ','
+         << record.values.size() << ','
+         << mean(record.values.begin(), record.values.end()).count() << ','
+         << unit<duration_type>() << '\n';
+}
+
+template <duration duration_type>
+void write_json_record(std::ostream& stream, const record<duration_type>& record)
+{
+  stream << "{\"name\":\"" << record.name
+         << "\",\"iterations\":" << record.values.size()
+         << ",\"real_time\":" << mean(record.values.begin(), record.values.end()).count()
+         << ",\"time_unit\":\"" << unit<duration_type>() << "\"}";
+}
+}
+
 template <detail::duration duration_type>
 std::ostream& write_console(std::ostream& stream, const record<duration_type>& record)
 {
-  return stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n"
-                << record.name << ' ' << mean(record.values.begin(), record.values.end()).count() << ' ' << record.values.size() << '\n';
+  stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
+  detail::write_console_record(stream, record);
+  return stream;
 }
 
 template <detail::duration duration_type>
@@ -250,7 +285,7 @@ std::ostream& write_console(std::ostream& stream, const session<duration_type>& 
   stream << "Benchmark Time(" << detail::unit<duration_type>() << ") Iterations\n";
   for (const auto& record : session.records())
   {
-    stream << record.name << ' ' << mean(record.values.begin(), record.values.end()).count() << ' ' << record.values.size() << '\n';
+    detail::write_console_record(stream, record);
   }
   return stream;
 }
@@ -258,9 +293,9 @@ std::ostream& write_console(std::ostream& stream, const session<duration_type>& 
 template <detail::duration duration_type>
 std::ostream& write_csv(std::ostream& stream, const record<duration_type>& record)
 {
-  return stream << "name,iterations,real_time,time_unit\n"
-                << record.name << ',' << record.values.size() << ',' << mean(record.values.begin(), record.values.end()).count() << ','
-                << detail::unit<duration_type>() << '\n';
+  stream << "name,iterations,real_time,time_unit\n";
+  detail::write_csv_record(stream, record);
+  return stream;
 }
 
 template <detail::duration duration_type>
@@ -269,8 +304,7 @@ std::ostream& write_csv(std::ostream& stream, const session<duration_type>& sess
   stream << "name,iterations,real_time,time_unit\n";
   for (const auto& record : session.records())
   {
-    stream << record.name << ',' << record.values.size() << ',' << mean(record.values.begin(), record.values.end()).count() << ','
-           << detail::unit<duration_type>() << '\n';
+    detail::write_csv_record(stream, record);
   }
   return stream;
 }
@@ -278,21 +312,24 @@ std::ostream& write_csv(std::ostream& stream, const session<duration_type>& sess
 template <detail::duration duration_type>
 std::ostream& write_json(std::ostream& stream, const record<duration_type>& record)
 {
-  return stream << "{\"benchmarks\":[{\"name\":\"" << record.name << "\",\"iterations\":" << record.values.size()
-                << ",\"real_time\":" << mean(record.values.begin(), record.values.end()).count() << ",\"time_unit\":\""
-                << detail::unit<duration_type>() << "\"}]}\n";
+  stream << "{\"benchmarks\":[";
+  detail::write_json_record(stream, record);
+  return stream << "]}\n";
 }
 
 template <detail::duration duration_type>
 std::ostream& write_json(std::ostream& stream, const session<duration_type>& session)
 {
   stream << "{\"benchmarks\":[";
-  for (auto i = std::size_t {}; i < session.records().size(); ++i)
+  auto first = true;
+  for (const auto& record : session.records())
   {
-    const auto& record = session.records()[i];
-    stream << (i == 0 ? "" : ",") << "{\"name\":\"" << record.name << "\",\"iterations\":" << record.values.size()
-           << ",\"real_time\":" << mean(record.values.begin(), record.values.end()).count() << ",\"time_unit\":\""
-           << detail::unit<duration_type>() << "\"}";
+    if (!first)
+    {
+      stream << ',';
+    }
+    first = false;
+    detail::write_json_record(stream, record);
   }
   return stream << "]}\n";
 }

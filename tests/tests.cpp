@@ -31,7 +31,10 @@ TEST_CASE("benchmark::record statistics are empty-safe")
 
 TEST_CASE("benchmark::record statistics use chrono durations")
 {
-  const auto record = benchmark::record<duration> {"fixed", {duration {1.0}, duration {2.0}, duration {3.0}, duration {4.0}}};
+  const auto record = benchmark::record<duration> {
+    "fixed",
+    {duration {1.0}, duration {2.0}, duration {3.0}, duration {4.0}}
+  };
   const auto first  = record.values.begin();
   const auto last   = record.values.end  ();
 
@@ -52,7 +55,7 @@ TEST_CASE("benchmark::run records a single callable")
   const auto record = benchmark::run<duration>([&]
   {
     ++counter;
-  }, 10 /* iterations */);
+  }, 10);
 
   CHECK(record.name          == "benchmark");
   CHECK(record.values.size() == 10);
@@ -80,7 +83,7 @@ TEST_CASE("benchmark::run records named session entries")
       auto value = std::size_t {};
       std::ranges::generate(buffer, [&value] { return value++; });
     });
-  }, 10 /* iterations */);
+  }, 10);
 
   REQUIRE(session.records   ().size() == 2);
   CHECK  (session.iterations   () == 10);
@@ -96,7 +99,7 @@ TEST_CASE("benchmark::run reuses session records by name")
   {
     recorder.record("same", [] {});
     recorder.record("same", [] {});
-  }, 3 /* iterations */);
+  }, 3);
 
   REQUIRE(session.records   ().size() == 1);
   CHECK  (session.iterations() == 3);
@@ -111,7 +114,7 @@ TEST_CASE("benchmark reporters produce console csv and json output")
   {
     recorder.record("alpha", [] {});
     recorder.record("beta" , [] {});
-  }, 2 /* iterations */);
+  }, 2);
 
   auto stream = std::ostringstream {};
   benchmark::write_console(stream, record);
@@ -124,7 +127,8 @@ TEST_CASE("benchmark reporters produce console csv and json output")
 
   stream.str({});
   benchmark::write_json(stream, record);
-  CHECK(stream.str() == "{\"benchmarks\":[{\"name\":\"fixed\",\"iterations\":2,\"real_time\":1.5,\"time_unit\":\"ms\"}]}\n");
+  CHECK(stream.str() == "{\"benchmarks\":[{\"name\":\"fixed\",\"iterations\":2,\"real_time\":1.5,"
+                        "\"time_unit\":\"ms\"}]}\n");
 
   stream.str({});
   benchmark::write_console(stream, session);
