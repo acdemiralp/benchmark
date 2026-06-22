@@ -58,13 +58,6 @@ struct record
   std::vector<duration_type> values;
 };
 
-template <std::input_iterator iterator>
-requires detail::duration<std::iter_value_t<iterator>>
-[[nodiscard]] constexpr auto sum(iterator first, iterator last)
-{
-  return std::reduce(first, last, std::iter_value_t<iterator> {});
-}
-
 template <std::forward_iterator iterator>
 requires detail::duration<std::iter_value_t<iterator>>
 [[nodiscard]] constexpr auto mean(iterator first, iterator last)
@@ -72,7 +65,7 @@ requires detail::duration<std::iter_value_t<iterator>>
   using value_type = std::iter_value_t<iterator>;
   using rep        = typename value_type::rep;
   const auto count = std::distance(first, last);
-  return count == 0 ? value_type {} : sum(first, last) / static_cast<rep>(count);
+  return count == 0 ? value_type {} : std::accumulate(first, last, value_type {}) / static_cast<rep>(count);
 }
 
 template <std::forward_iterator iterator>
