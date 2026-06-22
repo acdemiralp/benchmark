@@ -64,26 +64,22 @@ requires detail::duration<std::iter_value_t<iterator>>
 {
   using value_type = std::iter_value_t<iterator>;
   using rep        = typename value_type::rep;
-  const auto count = std::distance(first, last);
-  return count == 0 ? value_type {} : std::accumulate(first, last, value_type {}) / static_cast<rep>(count);
+  const auto result = std::accumulate(first, last, value_type {});
+  return result == value_type {} ? result : result / static_cast<rep>(std::distance(first, last));
 }
 
 template <std::forward_iterator iterator>
 requires detail::duration<std::iter_value_t<iterator>>
 [[nodiscard]] constexpr auto minimum(iterator first, iterator last)
 {
-  using value_type = std::iter_value_t<iterator>;
-  const auto result = std::min_element(first, last);
-  return result == last ? value_type {} : *result;
+  return first == last ? std::iter_value_t<iterator> {} : *std::min_element(first, last);
 }
 
 template <std::forward_iterator iterator>
 requires detail::duration<std::iter_value_t<iterator>>
 [[nodiscard]] constexpr auto maximum(iterator first, iterator last)
 {
-  using value_type = std::iter_value_t<iterator>;
-  const auto result = std::max_element(first, last);
-  return result == last ? value_type {} : *result;
+  return first == last ? std::iter_value_t<iterator> {} : *std::max_element(first, last);
 }
 
 template <std::forward_iterator iterator>
@@ -108,17 +104,14 @@ requires detail::duration<std::iter_value_t<iterator>>
 {
   using value_type = std::iter_value_t<iterator>;
   using rep        = typename value_type::rep;
-  const auto count = std::distance(first, last);
-  if (count == 0)
-    return rep {};
-
   const auto average = mean(first, last).count();
-  return std::transform_reduce(first, last, rep {}, std::plus {},
-                               [average] (const value_type value) constexpr noexcept
-                               {
-                                 const auto difference = value.count() - average;
-                                 return difference * difference;
-                               }) / static_cast<rep>(count);
+  const auto result  = std::transform_reduce(first, last, rep {}, std::plus {},
+                                             [average] (const value_type value) constexpr noexcept
+                                             {
+                                               const auto difference = value.count() - average;
+                                               return difference * difference;
+                                             });
+  return result == rep {} ? result : result / static_cast<rep>(std::distance(first, last));
 }
 
 template <std::forward_iterator iterator>
@@ -156,7 +149,7 @@ private:
   template <detail::duration, typename>
   friend class session_recorder;
 
-  [[nodiscard]] record_type& record(const std::string_view name, const std::size_t iterations)
+  [[nodiscard]] record_type& entry(const std::string_view name, const std::size_t iterations)
   {
     const auto key             = std::string {name};
     const auto [index, insert] = indices_.try_emplace(key, records_.size());
@@ -191,7 +184,7 @@ public:
     const auto start = clock_type::now();
     std::invoke(function);
     const auto end    = clock_type::now();
-    auto&      result = session_.record(name, iterations_);
+    auto&      result = session_.entry(name, iterations_);
     result.values[index_] = std::chrono::duration_cast<duration_type>(end - start);
   }
 
