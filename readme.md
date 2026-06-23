@@ -1,5 +1,5 @@
 # acdemiralp/benchmark
-Single-header C++23 benchmarking library.
+Header-only C++23 benchmarking library.
 
 ## Building
 ```bash
