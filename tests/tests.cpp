@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <numeric>
 #include <ratio>
@@ -16,17 +17,15 @@ using duration = std::chrono::duration<double, std::milli>;
 TEST_CASE("benchmark::record statistics are empty-safe")
 {
   const auto record = benchmark::record<duration> {};
-  const auto first  = record.values.begin();
-  const auto last   = record.values.end  ();
 
-  CHECK(std::accumulate(first, last, duration {}).count() == doctest::Approx(0.0));
-  CHECK(benchmark::mean                    (first, last).count() == doctest::Approx(0.0));
-  CHECK(benchmark::median                  (first, last).count() == doctest::Approx(0.0));
-  CHECK(benchmark::minimum                 (first, last).count() == doctest::Approx(0.0));
-  CHECK(benchmark::maximum                 (first, last).count() == doctest::Approx(0.0));
-  CHECK(benchmark::variance                (first, last)         == doctest::Approx(0.0));
-  CHECK(benchmark::standard_deviation      (first, last).count() == doctest::Approx(0.0));
-  CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(0.0));
+  CHECK(std::accumulate(record.values.begin(), record.values.end(), duration {}).count() == doctest::Approx(0.0));
+  CHECK(record.mean                    ().count() == doctest::Approx(0.0));
+  CHECK(record.median                  ().count() == doctest::Approx(0.0));
+  CHECK(record.minimum                 ().count() == doctest::Approx(0.0));
+  CHECK(record.maximum                 ().count() == doctest::Approx(0.0));
+  CHECK(record.variance                ()         == doctest::Approx(0.0));
+  CHECK(record.standard_deviation      ().count() == doctest::Approx(0.0));
+  CHECK(record.coefficient_of_variation()         == doctest::Approx(0.0));
 }
 
 TEST_CASE("benchmark::record statistics use chrono durations")
@@ -40,17 +39,30 @@ TEST_CASE("benchmark::record statistics use chrono durations")
     "fixed",
     {duration {1.0}, duration {2.0}, duration {3.0}, duration {4.0}}
   };
-  const auto first  = record.values.begin();
-  const auto last   = record.values.end  ();
 
-  CHECK(std::accumulate(first, last, duration {}).count() == doctest::Approx(expected_sum));
-  CHECK(benchmark::mean                    (first, last).count() == doctest::Approx(expected_average));
-  CHECK(benchmark::median                  (first, last).count() == doctest::Approx(expected_average));
-  CHECK(benchmark::minimum                 (first, last).count() == doctest::Approx(expected_minimum));
-  CHECK(benchmark::maximum                 (first, last).count() == doctest::Approx(expected_maximum));
-  CHECK(benchmark::variance                (first, last)         == doctest::Approx(expected_variance));
-  CHECK(benchmark::standard_deviation      (first, last).count() == doctest::Approx(std::sqrt(expected_variance)));
-  CHECK(benchmark::coefficient_of_variation(first, last)         == doctest::Approx(std::sqrt(expected_variance) / expected_average));
+  CHECK(std::accumulate(record.values.begin(), record.values.end(), duration {}).count() == doctest::Approx(expected_sum));
+  CHECK(record.mean                    ().count() == doctest::Approx(expected_average));
+  CHECK(record.median                  ().count() == doctest::Approx(expected_average));
+  CHECK(record.minimum                 ().count() == doctest::Approx(expected_minimum));
+  CHECK(record.maximum                 ().count() == doctest::Approx(expected_maximum));
+  CHECK(record.variance                ()         == doctest::Approx(expected_variance));
+  CHECK(record.standard_deviation      ().count() == doctest::Approx(std::sqrt(expected_variance)));
+  CHECK(record.coefficient_of_variation()         == doctest::Approx(std::sqrt(expected_variance) / expected_average));
+}
+
+TEST_CASE("benchmark::record supports integral chrono durations")
+{
+  using integral_duration = std::chrono::milliseconds;
+  const auto record = benchmark::record<integral_duration> {
+    "fixed",
+    {integral_duration {1}, integral_duration {2}, integral_duration {3}}
+  };
+
+  CHECK(record.mean              ().count() == 2);
+  CHECK(record.median            ().count() == 2);
+  CHECK(record.minimum           ().count() == 1);
+  CHECK(record.maximum           ().count() == 3);
+  CHECK(record.standard_deviation().count() == 0);
 }
 
 TEST_CASE("benchmark::run records a single callable") // NOLINT(readability-function-cognitive-complexity)
@@ -65,12 +77,20 @@ TEST_CASE("benchmark::run records a single callable") // NOLINT(readability-func
   CHECK(record.name          == "benchmark");
   CHECK(record.values.size() == 10);
   CHECK(counter              == 10);
-  const auto first   = record.values.begin();
-  const auto last    = record.values.end  ();
-  const auto minimum = benchmark::minimum(first, last);
+  const auto minimum = record.minimum();
   CHECK(minimum                        >= duration {});
-  CHECK(benchmark::maximum(first, last) >= minimum);
-  CHECK(benchmark::mean   (first, last) >= duration {});
+  CHECK(record.maximum() >= minimum);
+  CHECK(record.mean   () >= duration {});
+}
+
+TEST_CASE("benchmark::run defaults to milliseconds")
+{
+  const auto record = benchmark::run([] {});
+  static_assert(std::same_as<typename decltype(record)::value_type, std::chrono::duration<double, std::milli>>);
+
+  auto stream = std::ostringstream {};
+  record.write_console(stream);
+  CHECK(stream.str().contains("Benchmark Time(ms) Iterations"));
 }
 
 TEST_CASE("benchmark::run records named session entries") // NOLINT(readability-function-cognitive-complexity)
@@ -147,6 +167,10 @@ TEST_CASE("benchmark reporters produce console csv and json output") // NOLINT(r
   stream.str({});
   record.write_csv(stream);
   CHECK(stream.str() == "name,iterations,real_time,time_unit\nfixed,2,1.5,ms\n");
+
+  stream.str({});
+  record.write(stream, decltype(record)::report_format::csv);
+  CHECK(stream.str() == "fixed,2,1.5,ms\n");
 
   stream.str({});
   record.write_json(stream);
